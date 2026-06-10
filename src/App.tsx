@@ -11,6 +11,7 @@ import OutlineApproval from './components/OutlineApproval';
 import RecipeDetailsModal from './components/RecipeDetailsModal';
 import { MealPlanDay, RecipeSummary, RecipeIngredient, Ingredient, UserSettings, WeeklyPlan, RecipeDetails } from './types';
 import { Sparkles, Calendar, ShoppingCart, PlusCircle, Settings, AlertCircle, HelpCircle, Check, Flame, RefreshCcw } from 'lucide-react';
+import { parseIngredientsSheet, parseSettingsSheet, parseRecipeSummaries, parseRecipeIngredients, parseRecipeDetails } from './utils';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'calendar' | 'shopping' | 'add' | 'settings'>('calendar');
@@ -52,11 +53,63 @@ export default function App() {
     setErrorMsg(null);
     try {
       // 1. Fetch sheet data
-      const dataRes = await fetch('/api/sheet-data');
-      if (!dataRes.ok) {
-        throw new Error('Nem sikerült betölteni az adatokat az Express szerverről.');
+      let data;
+      try {
+        const dataRes = await fetch('/api/sheet-data');
+        if (!dataRes.ok) {
+          throw new Error('API server returned error status');
+        }
+        // If Vercel accidentally returns HTML instead of JSON (like a redirect), this throws
+        const text = await dataRes.text();
+        if (text.startsWith('<html') || text.startsWith('<!DOCTYPE')) {
+          throw new Error('API returned HTML instead of JSON');
+        }
+        data = JSON.parse(text);
+      } catch (apiError) {
+        console.warn('Backend API fetch failed, performing browser-based direct fetch from Google Sheets...', apiError);
+        try {
+          const SPREADSHEET_ID = '1fhU-3_IGvXO1ELh04KLNy1g_nVvM5Ww1EYU7s8YyOuo';
+          const fetchSheetCSVDirect = async (sheetName: string): Promise<string> => {
+            const url = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`Google Sheet ${sheetName} fetch returned ${response.status}`);
+            const text = await response.text();
+            if (text.includes('<html')) {
+              throw new Error(`Google Sheet returned HTML format for ${sheetName}`);
+            }
+            return text;
+          };
+
+          const rawIngredients = await fetchSheetCSVDirect('Alapanyagok');
+          const rawSettings = await fetchSheetCSVDirect('Beállítások');
+          const rawRecipesSum = await fetchSheetCSVDirect('Recept összesítő');
+          
+          let rawDetailed = '';
+          try { rawDetailed = await fetchSheetCSVDirect('Receptek'); } catch (err) { console.warn('No detailed recipes sheet', err); }
+          let rawDetails = '';
+          try { rawDetails = await fetchSheetCSVDirect('Recept részletek'); } catch (err) { console.warn('No recipe details sheet', err); }
+
+          const parsedIngredients = parseIngredientsSheet(rawIngredients);
+          const parsedSettings = parseSettingsSheet(rawSettings);
+          const parsedRecipes = parseRecipeSummaries(rawRecipesSum);
+          const parsedRecipeIngredients = rawDetailed ? parseRecipeIngredients(rawDetailed) : [];
+          const parsedRecipeDetails = rawDetails ? parseRecipeDetails(rawDetails) : [];
+
+          data = {
+            ingredients: parsedIngredients,
+            settings: parsedSettings,
+            recipes: parsedRecipes,
+            recipeIngredients: parsedRecipeIngredients,
+            recipeDetails: parsedRecipeDetails,
+            isDemoMode: false,
+            fromBrowserFetch: true
+          };
+          console.log('Successfully fetched and parsed Google Sheets data directly in browser!');
+        } catch (clientErr: any) {
+          console.error('All data loading sources failed.', clientErr);
+          throw new Error('Nem sikerült betölteni a táblázat adatait sem az Express szerverről, sem közvetlenül a böngészőből.');
+        }
       }
-      const data = await dataRes.json();
 
       // Merge with browser local storage for extreme reliability on stateless/serverless platforms (like Vercel)
       let finalIngredients = [...data.ingredients];
