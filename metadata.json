@@ -1,0 +1,6 @@
+{
+  "name": "Heti Étrend-tervező",
+  "description": "Mobilra optimalizált intelligens heti étrend-tervező és háztartási bevásárlólista.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
