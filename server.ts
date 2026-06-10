@@ -7,7 +7,6 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import AdmZip from 'adm-zip';
-import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import { parseIngredientsSheet, parseRecipeSummaries, parseSettingsSheet, parseRecipeIngredients, parseRecipeDetails, parseCSV, parseNumber } from './src/utils';
 
@@ -96,12 +95,21 @@ if (!fs.existsSync(LOCAL_PLANS_FILE)) writeLocalData(LOCAL_PLANS_FILE, {});
 
 // Helper to fetch CSV from Public Google Sheets url
 async function fetchSheetCSV(sheetName: string): Promise<string> {
-  const url = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?sheet=${encodeURIComponent(sheetName)}&tqx=out:csv`;
-  const response = await fetch(url);
+  const url = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/export?format=csv&sheet=${encodeURIComponent(sheetName)}`;
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
+      'Accept': 'text/csv,text/plain,*/*'
+    }
+  });
   if (!response.ok) {
-    throw new Error(`Failed to fetch sheet ${sheetName}: ${response.statusText}`);
+    throw new Error(`Failed to fetch sheet ${sheetName}: ${response.status} ${response.statusText}`);
   }
-  return await response.text();
+  const text = await response.text();
+  if (text.includes('<html')) {
+    throw new Error(`Google Sheets returned HTML instead of CSV for ${sheetName}. It might be blocked or require login.`);
+  }
+  return text;
 }
 
 // API Routes
@@ -650,7 +658,9 @@ app.post('/api/generate-plan', (req, res) => {
 
 // Serve frontend react files
 async function startServer() {
-  if (process.env.NODE_ENV !== 'production') {
+  if (process.env.NODE_ENV !== 'production' && !isVercel) {
+    const viteModuleName = 'vite';
+    const { createServer: createViteServer } = await import(viteModuleName);
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
