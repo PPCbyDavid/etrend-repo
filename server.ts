@@ -36,9 +36,17 @@ const ai = new GoogleGenAI({
 });
 
 // Local state for newly created recipes and ingredients in container
-const LOCAL_INGREDIENTS_FILE = path.join(process.cwd(), 'local_ingredients.json');
-const LOCAL_RECIPES_FILE = path.join(process.cwd(), 'local_recipes.json');
-const LOCAL_PLANS_FILE = path.join(process.cwd(), 'local_plans.json');
+const isVercel = !!process.env.VERCEL;
+
+const LOCAL_INGREDIENTS_FILE = isVercel 
+  ? path.join('/tmp', 'local_ingredients.json')
+  : path.join(process.cwd(), 'local_ingredients.json');
+const LOCAL_RECIPES_FILE = isVercel 
+  ? path.join('/tmp', 'local_recipes.json')
+  : path.join(process.cwd(), 'local_recipes.json');
+const LOCAL_PLANS_FILE = isVercel 
+  ? path.join('/tmp', 'local_plans.json')
+  : path.join(process.cwd(), 'local_plans.json');
 
 function readLocalData<T>(file: string, fallback: T): T {
   try {
@@ -60,6 +68,28 @@ function writeLocalData<T>(file: string, data: T) {
 }
 
 // Ensure local files exist
+if (isVercel) {
+  const srcIngredients = path.join(process.cwd(), 'local_ingredients.json');
+  const srcRecipes = path.join(process.cwd(), 'local_recipes.json');
+  const srcPlans = path.join(process.cwd(), 'local_plans.json');
+
+  if (!fs.existsSync(LOCAL_INGREDIENTS_FILE) && fs.existsSync(srcIngredients)) {
+    try { fs.copyFileSync(srcIngredients, LOCAL_INGREDIENTS_FILE); } catch (e) {
+      console.error('Error copying ingredients to /tmp:', e);
+    }
+  }
+  if (!fs.existsSync(LOCAL_RECIPES_FILE) && fs.existsSync(srcRecipes)) {
+    try { fs.copyFileSync(srcRecipes, LOCAL_RECIPES_FILE); } catch (e) {
+      console.error('Error copying recipes to /tmp:', e);
+    }
+  }
+  if (!fs.existsSync(LOCAL_PLANS_FILE) && fs.existsSync(srcPlans)) {
+    try { fs.copyFileSync(srcPlans, LOCAL_PLANS_FILE); } catch (e) {
+      console.error('Error copying plans to /tmp:', e);
+    }
+  }
+}
+
 if (!fs.existsSync(LOCAL_INGREDIENTS_FILE)) writeLocalData(LOCAL_INGREDIENTS_FILE, []);
 if (!fs.existsSync(LOCAL_RECIPES_FILE)) writeLocalData(LOCAL_RECIPES_FILE, []);
 if (!fs.existsSync(LOCAL_PLANS_FILE)) writeLocalData(LOCAL_PLANS_FILE, {});
@@ -639,4 +669,8 @@ async function startServer() {
   });
 }
 
-startServer();
+export default app;
+
+if (!isVercel) {
+  startServer();
+}
