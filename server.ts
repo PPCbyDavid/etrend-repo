@@ -95,7 +95,7 @@ if (!fs.existsSync(LOCAL_PLANS_FILE)) writeLocalData(LOCAL_PLANS_FILE, {});
 
 // Helper to fetch CSV from Public Google Sheets url
 async function fetchSheetCSV(sheetName: string): Promise<string> {
-  const url = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/export?format=csv&sheet=${encodeURIComponent(sheetName)}`;
+  const url = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
   const response = await fetch(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',

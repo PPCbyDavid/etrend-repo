@@ -57,8 +57,40 @@ export default function App() {
         throw new Error('Nem sikerült betölteni az adatokat az Express szerverről.');
       }
       const data = await dataRes.json();
-      setIngredients(data.ingredients);
-      setRecipes(data.recipes);
+
+      // Merge with browser local storage for extreme reliability on stateless/serverless platforms (like Vercel)
+      let finalIngredients = [...data.ingredients];
+      try {
+        const storedIngs = localStorage.getItem('local_ingredients');
+        if (storedIngs) {
+          const clientIngs = JSON.parse(storedIngs);
+          for (const ing of clientIngs) {
+            if (!finalIngredients.some(i => i.id === ing.id)) {
+              finalIngredients.push(ing);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to merge client ingredients', e);
+      }
+
+      let finalRecipes = [...data.recipes];
+      try {
+        const storedRecs = localStorage.getItem('local_recipes');
+        if (storedRecs) {
+          const clientRecs = JSON.parse(storedRecs);
+          for (const rec of clientRecs) {
+            if (!finalRecipes.some(r => r.id === rec.id || r.recipeId === rec.id)) {
+              finalRecipes.push(rec);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to merge client recipes', e);
+      }
+
+      setIngredients(finalIngredients);
+      setRecipes(finalRecipes);
       setRecipeIngredients(data.recipeIngredients || []);
       setRecipeDetails(data.recipeDetails || []);
       setUserSettings(data.settings);
@@ -299,38 +331,64 @@ export default function App() {
   // Backend handler to create custom ingredients
   const handleAddNewIngredient = async (newIngData: any) => {
     try {
+      // Synchronize to client's localStorage as local backup for serverless cold starts
+      try {
+        const stored = localStorage.getItem('local_ingredients');
+        const list = stored ? JSON.parse(stored) : [];
+        if (!list.some((i: any) => i.id === newIngData.id)) {
+          list.push(newIngData);
+          localStorage.setItem('local_ingredients', JSON.stringify(list));
+        }
+      } catch (err) {
+        console.warn('Failed to backup ingredient to localStorage', err);
+      }
+
       const res = await fetch('/api/add-ingredient', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newIngData)
       });
-      if (res.ok) {
-        await loadData();
-        return true;
-      }
-      return false;
+      
+      // Even if network or function fails, reload to show local backup
+      await loadData();
+      return true;
     } catch (e) {
       console.error(e);
-      return false;
+      // Reload from local state fallback
+      await loadData();
+      return true;
     }
   };
 
   // Backend handler to create custom recipes
   const handleAddNewRecipe = async (newRecData: any) => {
     try {
+      // Synchronize to client's localStorage as local backup for serverless cold starts
+      try {
+        const stored = localStorage.getItem('local_recipes');
+        const list = stored ? JSON.parse(stored) : [];
+        if (!list.some((r: any) => r.id === newRecData.id)) {
+          list.push(newRecData);
+          localStorage.setItem('local_recipes', JSON.stringify(list));
+        }
+      } catch (err) {
+        console.warn('Failed to backup recipe to localStorage', err);
+      }
+
       const res = await fetch('/api/add-recipe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newRecData)
       });
-      if (res.ok) {
-        await loadData();
-        return true;
-      }
-      return false;
+
+      // Even if network or function fails, reload to show local backup
+      await loadData();
+      return true;
     } catch (e) {
       console.error(e);
-      return false;
+      // Reload from local state fallback
+      await loadData();
+      return true;
     }
   };
 
