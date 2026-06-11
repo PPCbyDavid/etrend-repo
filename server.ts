@@ -13,7 +13,7 @@ import { parseIngredientsSheet, parseRecipeSummaries, parseSettingsSheet, parseR
 const DEFAULT_RECIPE_DETAILS_CSV = `"Recept ID","Recept neve","Adag (fő)","Elkészítési idő","Elkészítés (lépések)","Videó-link","Megjegyzés"
 "R1","Skyr-gyümi-fehérje","1","5 p","Összekeverjük a skyr-t, Obstpause-t, gyümölcsöt. Turmixba is mehet.","","Gyors reggeli"`;
 
-import { solveWeeklyPlan, getAccumulatedCost, addCost } from './src/generator.js';
+import { solveWeeklyPlan, solveHouseholdPlan, getAccumulatedCost, addCost } from './src/generator.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -646,7 +646,7 @@ Fontos: CSAK a megadott JSON formátumot küldd vissza.`;
     // limit (which would surface as an opaque, non-JSON Vercel crash page on
     // the client). Race the Gemini call against a self-imposed timeout so we
     // always return a readable JSON error instead.
-    const GENERATION_TIMEOUT_MS = 50_000;
+    const GENERATION_TIMEOUT_MS = 58_000;
     const timeoutPromise = new Promise<never>((_, reject) =>
       setTimeout(
         () => reject(new Error('A generálás túllépte az időkeretet (50 mp). Próbáld újra később.')),
@@ -684,6 +684,24 @@ app.post('/api/generate-plan', (req, res) => {
     res.json(solved);
   } catch (error: any) {
     res.status(500).json({ error: 'Nem sikerült kiszámolni az étrendet: ' + error.message });
+  }
+});
+
+// Household solver: generate a week for everyone at once where lunch (Ebéd) and
+// dinner (Vacsora) are shared, with personalized other meals and per-person
+// portions on the shared meals. Deterministic (no AI), so no timeout risk.
+app.post('/api/generate-household-plan', (req, res) => {
+  try {
+    const { usersSettings, recipes, ingredients, recipeIngredients } = req.body;
+
+    if (!Array.isArray(usersSettings) || usersSettings.length === 0 || !recipes) {
+      return res.status(400).json({ error: 'Hiányzó paraméterek a közös heti étrend kiszámolásához (usersSettings, recipes).' });
+    }
+
+    const solved = solveHouseholdPlan(recipes, recipeIngredients || [], ingredients || [], usersSettings);
+    res.json(solved);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Nem sikerült kiszámolni a közös étrendet: ' + error.message });
   }
 });
 

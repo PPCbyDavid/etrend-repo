@@ -27,6 +27,12 @@ export interface RecipeSummary {
   protein: number;
   carb: number;
   fat: number;
+  // Optional portion multiplier (e.g. 0.75 = three-quarter serving). Absent or 1
+  // means a full serving. Used by the household generator to scale a shared meal
+  // for each person so their calorie/protein targets are met. The kcal/protein/
+  // carb/fat above are already the scaled values; `portion` lets the shopping
+  // list scale ingredient grams accordingly.
+  portion?: number;
 }
 
 export interface RecipeIngredient {

@@ -44,10 +44,12 @@ export default function ShoppingList({
         const r = dayPlan.meals[mealKey as any];
         if (!r) return;
 
-        // Find recipe ingredient amounts
+        // Find recipe ingredient amounts, scaled by the meal's portion factor
+        // (shared household meals can be served at e.g. 0.75 portion).
+        const portion = r.portion ?? 1;
         const rIngs = recipeIngredients.filter(ri => ri.recipeId === r.id);
         rIngs.forEach(ri => {
-          ingredientWeights[ri.ingredientId] = (ingredientWeights[ri.ingredientId] || 0) + ri.amountGram;
+          ingredientWeights[ri.ingredientId] = (ingredientWeights[ri.ingredientId] || 0) + ri.amountGram * portion;
         });
       });
     });

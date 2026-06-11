@@ -36,6 +36,7 @@ export default function App() {
   // Gemini Outline State
   const [aiOutline, setAiOutline] = useState<any>(null);
   const [generatingOutline, setGeneratingOutline] = useState<boolean>(false);
+  const [generatingWeek, setGeneratingWeek] = useState<boolean>(false);
   const [showOutlineModal, setShowOutlineModal] = useState<boolean>(false);
 
   // Cost status
@@ -264,6 +265,77 @@ export default function App() {
     }
   };
 
+  // One-click household generator: build a full week for both David and Dorina
+  // at once. Lunch and dinner are shared (same dish, per-person portions);
+  // breakfast / pre-workout / snack are personalized to each person's macros.
+  // Deterministic (no AI), so it cannot time out.
+  const handleGenerateHousehold = async () => {
+    setGeneratingWeek(true);
+    try {
+      const householdUsers = ['David', 'Dorina'];
+      const usersSettings = householdUsers.map((u) => userSettings[u] || {
+        user: u,
+        targetKcal: u === 'David' ? 1950 : 1450,
+        minProtein: u === 'David' ? 135 : 90,
+        maxProtein: u === 'David' ? 175 : 120,
+        note: ''
+      });
+
+      const res = await fetch('/api/generate-household-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ usersSettings, recipes, ingredients, recipeIngredients })
+      });
+
+      if (!res.ok) {
+        let msg = 'Sikertelen generálás.';
+        try { const errData = await res.json(); msg = errData.error || msg; } catch { /* non-JSON */ }
+        throw new Error(msg);
+      }
+
+      const { plans, warning } = await res.json();
+      const davidDays: MealPlanDay[] = plans?.David?.days || [];
+      const dorinaDays: MealPlanDay[] = plans?.Dorina?.days || [];
+
+      setDavidPlan(davidDays);
+      setDorinaPlan(dorinaDays);
+      try {
+        localStorage.setItem('mealPlan_David', JSON.stringify(davidDays));
+        localStorage.setItem('mealPlan_Dorina', JSON.stringify(dorinaDays));
+      } catch (e) {
+        console.warn('localStorage not available', e);
+      }
+
+      // Persist both plans to the backend (best-effort).
+      try {
+        await Promise.all(
+          Object.keys(plans || {}).map((u) =>
+            fetch('/api/plans', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ user: u, plan: { user: u, days: plans[u].days } })
+            })
+          )
+        );
+      } catch (e) {
+        console.error('Failed to save household plans to backend:', e);
+      }
+
+      setShowOutlineModal(false);
+      setActiveTab('calendar');
+
+      if (warning) {
+        triggerToast('success', `David és Dorina heti étrendje elkészült (közös ebéd/vacsora). Figyelmeztetés: ${warning}`);
+      } else {
+        triggerToast('success', 'David és Dorina heti étrendje elkészült! Közös ebéd és vacsora, személyre szabott adagokkal.');
+      }
+    } catch (e: any) {
+      triggerToast('error', e.message || 'Nem sikerült legenerálni a közös heti étrendet.');
+    } finally {
+      setGeneratingWeek(false);
+    }
+  };
+
   // Step 1 of Generator: Call Gemini API from Express to draft outline
   const handleGenerateOutline = async () => {
     setGeneratingOutline(true);
@@ -475,12 +547,18 @@ export default function App() {
             </div>
           </div>
 
-          {/* Action Generator launch button */}
+          {/* Action Generator launch button — one click builds the week for
+              both David and Dorina (shared lunch/dinner, personalized portions). */}
           <button
-            onClick={handleGenerateOutline}
-            className="bg-[#D48166] hover:bg-[#c37359] text-white font-extrabold text-xs px-5 py-2.5 rounded-full flex items-center gap-1.5 transition-all shadow-md shadow-[#D48166]/20 hover:scale-102 active:translate-y-px"
+            onClick={handleGenerateHousehold}
+            disabled={generatingWeek}
+            className="bg-[#D48166] hover:bg-[#c37359] disabled:opacity-60 disabled:cursor-not-allowed text-white font-extrabold text-xs px-5 py-2.5 rounded-full flex items-center gap-1.5 transition-all shadow-md shadow-[#D48166]/20 hover:scale-102 active:translate-y-px"
           >
-            <Sparkles className="w-3.5 h-3.5 fill-white" /> Generálj jövő hetet
+            {generatingWeek ? (
+              <><RefreshCcw className="w-3.5 h-3.5 animate-spin" /> Generálás...</>
+            ) : (
+              <><Sparkles className="w-3.5 h-3.5 fill-white" /> Generálj jövő hetet (David + Dorina)</>
+            )}
           </button>
         </div>
       </header>
