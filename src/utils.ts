@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Ingredient, RecipeSummary, RecipeIngredient, UserSettings, RecipeDetails } from './types';
+import type { Ingredient, RecipeSummary, RecipeIngredient, UserSettings, RecipeDetails } from './types';
 
 export function parseCSV(csvText: string): string[][] {
   const lines: string[][] = [];

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { RecipeSummary, RecipeIngredient, Ingredient, UserSettings, WeeklyPlan, MealPlanDay, MealType } from './types';
+import type { RecipeSummary, RecipeIngredient, Ingredient, UserSettings, WeeklyPlan, MealPlanDay, MealType } from './types';
 import fs from 'fs';
 import path from 'path';
 

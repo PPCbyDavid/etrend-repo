@@ -8,12 +8,12 @@ import path from 'path';
 import fs from 'fs';
 import AdmZip from 'adm-zip';
 import { GoogleGenAI, Type } from '@google/genai';
-import { parseIngredientsSheet, parseRecipeSummaries, parseSettingsSheet, parseRecipeIngredients, parseRecipeDetails, parseCSV, parseNumber } from './src/utils';
+import { parseIngredientsSheet, parseRecipeSummaries, parseSettingsSheet, parseRecipeIngredients, parseRecipeDetails, parseCSV, parseNumber } from './src/utils.js';
 
 const DEFAULT_RECIPE_DETAILS_CSV = `"Recept ID","Recept neve","Adag (fő)","Elkészítési idő","Elkészítés (lépések)","Videó-link","Megjegyzés"
 "R1","Skyr-gyümi-fehérje","1","5 p","Összekeverjük a skyr-t, Obstpause-t, gyümölcsöt. Turmixba is mehet.","","Gyors reggeli"`;
 
-import { solveWeeklyPlan, getAccumulatedCost, addCost } from './src/generator';
+import { solveWeeklyPlan, getAccumulatedCost, addCost } from './src/generator.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
