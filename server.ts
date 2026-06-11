@@ -24,15 +24,26 @@ const SPREADSHEET_ID = '1fhU-3_IGvXO1ELh04KLNy1g_nVvM5Ww1EYU7s8YyOuo';
 
 app.use(express.json());
 
-// Initialize Gemini SDK with telemetry User-Agent
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    }
+// Lazily initialize the Gemini SDK so a missing API key only breaks the
+// generate-outline endpoint, not the whole serverless function at load time.
+let ai: GoogleGenAI | null = null;
+
+function getGeminiClient(): GoogleGenAI {
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error('MISSING_GEMINI_API_KEY');
   }
-});
+  if (!ai) {
+    ai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        }
+      }
+    });
+  }
+  return ai;
+}
 
 // Local state for newly created recipes and ingredients in container
 const isVercel = !!process.env.VERCEL;
@@ -562,6 +573,12 @@ app.post('/api/generate-outline', async (req, res) => {
     return res.status(403).json({ error: 'A havi költségplafon_elérve (~$10)! A generátor ideiglenesen leállt.' });
   }
 
+  if (!process.env.GEMINI_API_KEY) {
+    return res.status(500).json({
+      error: 'A GEMINI_API_KEY környezeti változó nincs beállítva a szerveren, ezért az AI-generálás nem érhető el. Állítsd be a Vercel dashboardon (Settings → Environment Variables), majd indíts újra egy deployt.'
+    });
+  }
+
   try {
     const { user, settings, recipes } = req.body;
 
@@ -588,7 +605,7 @@ Fontos: CSAK a megadott JSON formátumot küldd vissza.`;
     // Measure request tokens (rough estimate for tracking)
     const estInputTokens = Math.round(prompt.length / 4);
     
-    const response = await ai.models.generateContent({
+    const response = await getGeminiClient().models.generateContent({
       model: 'gemini-3.5-flash',
       contents: prompt,
       config: {

@@ -7,8 +7,13 @@ import { RecipeSummary, RecipeIngredient, Ingredient, UserSettings, WeeklyPlan, 
 import fs from 'fs';
 import path from 'path';
 
-// Cost tracker helper
-const COST_FILE = path.join(process.cwd(), 'cost_tracker.json');
+// Cost tracker helper.
+// On Vercel the working directory is read-only, so writes must go to /tmp
+// (which is ephemeral and cleared on cold start).
+const isVercel = !!process.env.VERCEL;
+const COST_FILE = isVercel
+  ? path.join('/tmp', 'cost_tracker.json')
+  : path.join(process.cwd(), 'cost_tracker.json');
 
 export function getAccumulatedCost(): number {
   try {
