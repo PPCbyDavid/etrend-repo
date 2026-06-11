@@ -605,7 +605,7 @@ Fontos: CSAK a megadott JSON formátumot küldd vissza.`;
     // Measure request tokens (rough estimate for tracking)
     const estInputTokens = Math.round(prompt.length / 4);
     
-    const response = await getGeminiClient().models.generateContent({
+    const genPromise = getGeminiClient().models.generateContent({
       model: 'gemini-3.5-flash',
       contents: prompt,
       config: {
@@ -641,6 +641,20 @@ Fontos: CSAK a megadott JSON formátumot küldd vissza.`;
         }
       }
     });
+
+    // Safety net: never let the request silently exceed the function runtime
+    // limit (which would surface as an opaque, non-JSON Vercel crash page on
+    // the client). Race the Gemini call against a self-imposed timeout so we
+    // always return a readable JSON error instead.
+    const GENERATION_TIMEOUT_MS = 50_000;
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error('A generálás túllépte az időkeretet (50 mp). Próbáld újra később.')),
+        GENERATION_TIMEOUT_MS
+      )
+    );
+
+    const response = await Promise.race([genPromise, timeoutPromise]);
 
     const text = response.text || '';
     const estOutputTokens = Math.round(text.length / 4);
