@@ -14,6 +14,7 @@ const DEFAULT_RECIPE_DETAILS_CSV = `"Recept ID","Recept neve","Adag (fő)","Elk�
 "R1","Skyr-gyümi-fehérje","1","5 p","Összekeverjük a skyr-t, Obstpause-t, gyümölcsöt. Turmixba is mehet.","","Gyors reggeli"`;
 
 import { solveWeeklyPlan, solveHouseholdPlan, getAccumulatedCost, addCost } from './src/generator.js';
+import { Redis } from '@upstash/redis';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -47,6 +48,26 @@ function getGeminiClient(): GoogleGenAI {
 
 // Local state for newly created recipes and ingredients in container
 const isVercel = !!process.env.VERCEL;
+
+// Shared persistent store (Vercel KV / Upstash Redis) for weekly plans, so the
+// plan generated on one device is visible on every device. Lazily initialized;
+// if the env vars are missing (store not set up yet), we fall back to the
+// ephemeral /tmp file so nothing breaks. The Vercel Upstash integration injects
+// KV_REST_API_* (or UPSTASH_REDIS_REST_*) env vars.
+const WEEKLY_PLANS_KEY = 'weeklyPlans';
+let redisClient: Redis | null = null;
+let redisChecked = false;
+
+function getRedis(): Redis | null {
+  if (redisChecked) return redisClient;
+  redisChecked = true;
+  const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (url && token) {
+    redisClient = new Redis({ url, token });
+  }
+  return redisClient;
+}
 
 const LOCAL_INGREDIENTS_FILE = isVercel 
   ? path.join('/tmp', 'local_ingredients.json')
@@ -550,23 +571,43 @@ app.post('/api/add-recipe', (req, res) => {
   }
 });
 
-// Load saved weekly plans
-app.get('/api/plans', (req, res) => {
+// Load saved weekly plans (from the shared KV store if configured, else /tmp)
+app.get('/api/plans', async (req, res) => {
+  const redis = getRedis();
+  if (redis) {
+    try {
+      const plans = await redis.hgetall(WEEKLY_PLANS_KEY);
+      return res.json(plans || {});
+    } catch (e) {
+      console.error('KV read failed, falling back to /tmp:', e);
+    }
+  }
   const plans = readLocalData(LOCAL_PLANS_FILE, {});
   res.json(plans);
 });
 
-// Save a weekly plan
-app.post('/api/plans', (req, res) => {
+// Save a weekly plan (to the shared KV store if configured, else /tmp)
+app.post('/api/plans', async (req, res) => {
   try {
     const { user, plan } = req.body;
     if (!user || !plan) {
       return res.status(400).json({ error: 'Hiányzó felhasználó vagy terv.' });
     }
+
+    const redis = getRedis();
+    if (redis) {
+      try {
+        await redis.hset(WEEKLY_PLANS_KEY, { [user]: plan });
+        return res.json({ success: true, store: 'kv' });
+      } catch (e) {
+        console.error('KV write failed, falling back to /tmp:', e);
+      }
+    }
+
     const plans = readLocalData(LOCAL_PLANS_FILE, {});
     plans[user] = plan;
     writeLocalData(LOCAL_PLANS_FILE, plans);
-    res.json({ success: true });
+    res.json({ success: true, store: 'tmp' });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

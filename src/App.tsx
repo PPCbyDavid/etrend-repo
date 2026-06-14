@@ -157,7 +157,18 @@ export default function App() {
       // Initialize empty plans if not found
       const defaultDays = ['Hétfő', 'Kedd', 'Szerda', 'Csütörtök', 'Péntek', 'Szombat', 'Vasárnap'];
       const initPlan = (user: string): MealPlanDay[] => {
-        // 1. Try local storage first (persists across container restarts)
+        // 1. Prefer the shared server plan (source of truth across devices).
+        //    Cache it to localStorage so it's available offline.
+        if (savedPlans[user]?.days) {
+          try {
+            localStorage.setItem(`mealPlan_${user}`, JSON.stringify(savedPlans[user].days));
+          } catch (e) {
+            console.warn('Failed to cache server plan to localStorage', e);
+          }
+          return savedPlans[user].days;
+        }
+
+        // 2. Offline fallback: last cached plan in localStorage
         try {
           const localStr = localStorage.getItem(`mealPlan_${user}`);
           if (localStr) {
@@ -165,11 +176,6 @@ export default function App() {
           }
         } catch (e) {
           console.warn('Failed to parse localStorage plan', e);
-        }
-
-        // 2. Fall back to server saved plans
-        if (savedPlans[user]?.days) {
-          return savedPlans[user].days;
         }
 
         // 3. Fall back to empty default
