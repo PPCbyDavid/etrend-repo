@@ -69,6 +69,33 @@ function getRedis(): Redis | null {
   return redisClient;
 }
 
+// Google Sheet write gateway: a bound Apps Script Web App that appends rows to
+// the Alapanyagok / Recept összesítő / Receptek tabs. URL + shared secret come
+// from env vars (set in the Vercel dashboard). When unset, callers fall back to
+// the ephemeral /tmp file so nothing breaks before the script is deployed.
+const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL;
+const APPS_SCRIPT_SECRET = process.env.APPS_SCRIPT_SECRET || '';
+
+async function appendToSheet(payload: Record<string, any>): Promise<boolean> {
+  if (!APPS_SCRIPT_URL) return false;
+  try {
+    const resp = await fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, secret: APPS_SCRIPT_SECRET })
+    });
+    const data: any = await resp.json().catch(() => ({}));
+    if (!resp.ok || data.error) {
+      console.error('Apps Script write failed:', resp.status, data.error);
+      return false;
+    }
+    return !!data.success;
+  } catch (e) {
+    console.error('Apps Script request error:', e);
+    return false;
+  }
+}
+
 const LOCAL_INGREDIENTS_FILE = isVercel 
   ? path.join('/tmp', 'local_ingredients.json')
   : path.join(process.cwd(), 'local_ingredients.json');
@@ -509,16 +536,15 @@ app.get('/api/sheet-data', async (req, res) => {
   }
 });
 
-// Add a new ingredient
-app.post('/api/add-ingredient', (req, res) => {
+// Add a new ingredient (to the Google Sheet via Apps Script, else /tmp)
+app.post('/api/add-ingredient', async (req, res) => {
   try {
     const { id, name, kcalPer100g, proteinPer100g, carbPer100g, fatPer100g, packaging, packagingGram, store, source } = req.body;
-    
+
     if (!id || !name) {
       return res.status(400).json({ error: 'Hiányzó Azonosító vagy Alapanyag név.' });
     }
 
-    const localIngredients = readLocalData(LOCAL_INGREDIENTS_FILE, []);
     const newIng = {
       id,
       name,
@@ -532,25 +558,30 @@ app.post('/api/add-ingredient', (req, res) => {
       source: source || 'Kézi hozzáadás'
     };
 
-    localIngredients.push(newIng);
-    writeLocalData(LOCAL_INGREDIENTS_FILE, localIngredients);
+    const wroteToSheet = await appendToSheet({ action: 'addIngredient', ingredient: newIng });
+    if (!wroteToSheet) {
+      const localIngredients = readLocalData<any[]>(LOCAL_INGREDIENTS_FILE, []);
+      localIngredients.push(newIng);
+      writeLocalData(LOCAL_INGREDIENTS_FILE, localIngredients);
+    }
 
-    res.json({ success: true, ingredient: newIng });
+    res.json({ success: true, ingredient: newIng, store: wroteToSheet ? 'sheet' : 'tmp' });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Add a new recipe
-app.post('/api/add-recipe', (req, res) => {
+// Add a new recipe (to the Google Sheet via Apps Script, else /tmp). Optional
+// `ingredients` (id, name, amountGram) are appended to the Receptek tab so the
+// shopping list works.
+app.post('/api/add-recipe', async (req, res) => {
   try {
-    const { id, name, mealType, tags, kcal, protein, carb, fat } = req.body;
+    const { id, name, mealType, tags, kcal, protein, carb, fat, ingredients } = req.body;
 
     if (!id || !name || !mealType) {
       return res.status(400).json({ error: 'Hiányzó Recept ID, Név vagy Étkezéstípus.' });
     }
 
-    const localRecipes = readLocalData(LOCAL_RECIPES_FILE, []);
     const newRec = {
       id,
       name,
@@ -562,10 +593,15 @@ app.post('/api/add-recipe', (req, res) => {
       fat: Math.round(Number(fat)) || 0
     };
 
-    localRecipes.push(newRec);
-    writeLocalData(LOCAL_RECIPES_FILE, localRecipes);
+    const recipeIngredients = Array.isArray(ingredients) ? ingredients : [];
+    const wroteToSheet = await appendToSheet({ action: 'addRecipe', recipe: newRec, ingredients: recipeIngredients });
+    if (!wroteToSheet) {
+      const localRecipes = readLocalData<any[]>(LOCAL_RECIPES_FILE, []);
+      localRecipes.push(newRec);
+      writeLocalData(LOCAL_RECIPES_FILE, localRecipes);
+    }
 
-    res.json({ success: true, recipe: newRec });
+    res.json({ success: true, recipe: newRec, store: wroteToSheet ? 'sheet' : 'tmp' });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

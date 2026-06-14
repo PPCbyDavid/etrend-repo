@@ -44,6 +44,14 @@ export default function AddMealOrIngredient({
   const [tempId, setTempId] = useState('');
   const [tempAmount, setTempAmount] = useState('');
 
+  // Recipe macro source: computed from ingredients, or entered manually
+  // (e.g. a yogurt with label macros, no ingredient breakdown).
+  const [recMode, setRecMode] = useState<'fromIngredients' | 'manual'>('fromIngredients');
+  const [recManKcal, setRecManKcal] = useState('');
+  const [recManProtein, setRecManProtein] = useState('');
+  const [recManCarb, setRecManCarb] = useState('');
+  const [recManFat, setRecManFat] = useState('');
+
   // Dynamically calculate recipe summary macros from ingredient selection
   const liveMacros = useMemo(() => {
     let kcal = 0;
@@ -140,9 +148,36 @@ export default function AddMealOrIngredient({
       onError('Kérlek add meg a Recept nevét!');
       return;
     }
-    if (recIngredients.length === 0) {
-      onError('Adj hozzá legalább egy alapanyagot a recepthez, hogy kiszámolhassuk a tápértéket!');
-      return;
+
+    let macros: { kcal: number; protein: number; carb: number; fat: number };
+    let ingredientsPayload: Array<{ id: string; name: string; amountGram: number }> = [];
+
+    if (recMode === 'manual') {
+      if (!recManKcal) {
+        onError('Kézi makró módban add meg legalább a kalóriát!');
+        return;
+      }
+      macros = {
+        kcal: Math.round(Number(recManKcal)) || 0,
+        protein: Math.round(Number(recManProtein)) || 0,
+        carb: Math.round(Number(recManCarb)) || 0,
+        fat: Math.round(Number(recManFat)) || 0
+      };
+    } else {
+      if (recIngredients.length === 0) {
+        onError('Adj hozzá legalább egy alapanyagot a recepthez, hogy kiszámolhassuk a tápértéket!');
+        return;
+      }
+      macros = {
+        kcal: liveMacros.kcal,
+        protein: Math.round(liveMacros.protein),
+        carb: Math.round(liveMacros.carb),
+        fat: Math.round(liveMacros.fat)
+      };
+      ingredientsPayload = recIngredients.map(ri => {
+        const dbIng = ingredients.find(i => i.id === ri.id);
+        return { id: ri.id, name: dbIng?.name || '', amountGram: ri.amountGram };
+      });
     }
 
     // Generate unique recipe ID based on meal category prefix
@@ -159,21 +194,23 @@ export default function AddMealOrIngredient({
       name: recName,
       mealType: recMealType,
       tags: recTagInput ? recTagInput.split(';').map(t => t.trim()).filter(Boolean) : [],
-      kcal: liveMacros.kcal,
-      protein: Math.round(liveMacros.protein),
-      carb: Math.round(liveMacros.carb),
-      fat: Math.round(liveMacros.fat)
+      ...macros,
+      ingredients: ingredientsPayload
     };
 
     const success = await onAddRecipe(newRecipe);
     if (success) {
-      onSuccess(`"${recName}" recept kiszámolva és elmentve ${nextId} azonosítóval!`);
+      onSuccess(`"${recName}" recept elmentve ${nextId} azonosítóval!`);
       // Reset
       setRecName('');
       setRecTagInput('');
       setRecIngredients([]);
       setTempId('');
       setTempAmount('');
+      setRecManKcal('');
+      setRecManProtein('');
+      setRecManCarb('');
+      setRecManFat('');
     }
   };
 
@@ -376,6 +413,30 @@ export default function AddMealOrIngredient({
             </div>
           </div>
 
+          {/* Macro source toggle: compute from ingredients, or enter manually */}
+          <div className="flex gap-2 p-1 bg-[#E6E2D3] rounded-full max-w-md mx-auto shadow-inner">
+            <button
+              type="button"
+              onClick={() => setRecMode('fromIngredients')}
+              className={`flex-1 py-2 px-3 rounded-full text-xs font-bold transition-all ${
+                recMode === 'fromIngredients' ? 'bg-white text-[#5A5A40] shadow-sm' : 'text-slate-500 hover:text-[#5A5A40]'
+              }`}
+            >
+              🧮 Hozzávalókból számolt
+            </button>
+            <button
+              type="button"
+              onClick={() => setRecMode('manual')}
+              className={`flex-1 py-2 px-3 rounded-full text-xs font-bold transition-all ${
+                recMode === 'manual' ? 'bg-white text-[#5A5A40] shadow-sm' : 'text-slate-500 hover:text-[#5A5A40]'
+              }`}
+            >
+              ✍️ Kézi makró megadás
+            </button>
+          </div>
+
+          {recMode === 'fromIngredients' && (
+          <>
           {/* Composites Component Maker */}
           <div className="bg-[#F5F3ED]/60 p-4 border border-[#E6E2D3] rounded-2xl space-y-4">
             <h4 className="text-xs font-bold text-[#5A5A40] tracking-wider uppercase mb-1">1. Hozzávalók kimérése</h4>
@@ -482,18 +543,67 @@ export default function AddMealOrIngredient({
               </div>
             </div>
           </div>
+          </>
+          )}
+
+          {recMode === 'manual' && (
+            <div className="bg-[#FDFBF7] p-4 border border-[#E6E2D3] rounded-2xl space-y-3">
+              <h4 className="text-xs font-bold text-[#5A5A40] tracking-wider uppercase">Makrók (kész értékek, teljes adagra)</h4>
+              <div className="grid grid-cols-4 gap-2">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-[#9A9483] uppercase tracking-tight block text-center">Kcal *</label>
+                  <input
+                    type="number"
+                    placeholder="kcal"
+                    value={recManKcal}
+                    onChange={e => setRecManKcal(e.target.value)}
+                    className="w-full text-xs bg-[#F5F3ED] border border-[#E6E2D3] focus:bg-white rounded-lg p-2 outline-none font-mono text-center focus:ring-1 focus:ring-[#5A5A40]"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-[#9A9483] uppercase tracking-tight block text-center">Fehérje</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    placeholder="g"
+                    value={recManProtein}
+                    onChange={e => setRecManProtein(e.target.value)}
+                    className="w-full text-xs bg-[#F5F3ED] border border-[#E6E2D3] focus:bg-white rounded-lg p-2 outline-none font-mono text-center focus:ring-1 focus:ring-[#5A5A40]"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-[#9A9483] uppercase tracking-tight block text-center">Szénhidrát</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    placeholder="g"
+                    value={recManCarb}
+                    onChange={e => setRecManCarb(e.target.value)}
+                    className="w-full text-xs bg-[#F5F3ED] border border-[#E6E2D3] focus:bg-white rounded-lg p-2 outline-none font-mono text-center focus:ring-1 focus:ring-[#5A5A40]"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-[#9A9483] uppercase tracking-tight block text-center">Zsír</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    placeholder="g"
+                    value={recManFat}
+                    onChange={e => setRecManFat(e.target.value)}
+                    className="w-full text-xs bg-[#F5F3ED] border border-[#E6E2D3] focus:bg-white rounded-lg p-2 outline-none font-mono text-center focus:ring-1 focus:ring-[#5A5A40]"
+                  />
+                </div>
+              </div>
+              <p className="text-[10px] text-[#9A9483]">Pl. egy joghurt a címkén lévő makrókkal — a teljes adagra vonatkozó értékeket add meg, hozzávaló-bontás nélkül.</p>
+            </div>
+          )}
 
           <div className="pt-1 flex justify-end">
             <button
               type="submit"
-              disabled={recIngredients.length === 0}
-              className={`flex items-center gap-2 font-bold text-xs px-5 py-2.5 rounded-xl shadow-sm transition-all ${
-                recIngredients.length === 0
-                  ? 'bg-[#E6E2D3] text-[#9A9483] cursor-not-allowed'
-                  : 'bg-[#D48166] hover:bg-[#c37359] text-white'
-              }`}
+              className="flex items-center gap-2 font-bold text-xs px-5 py-2.5 rounded-xl shadow-sm transition-all bg-[#D48166] hover:bg-[#c37359] text-white"
             >
-              <Check className="w-4 h-4" /> Recept készre számolása & mentés
+              <Check className="w-4 h-4" /> Recept mentése
             </button>
           </div>
         </form>
